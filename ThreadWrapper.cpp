@@ -1,15 +1,36 @@
-#include "ThreadWrapper.h"
+﻿#include "ThreadWrapper.h"
 
 #include "Task.h"
 
-ThreadWrapper::ThreadWrapper(InterThreadSync mode)
-    : _mode(mode), _isThreadStopped(false), _running(true)
+ThreadWrapper::ThreadWrapper(InterThreadSync mode) : _mode(mode), _isThreadStopped(false)
 {
-    _thread = std::thread(&ThreadWrapper::threadFunc, this);
+    _thread = std::jthread(
+        [this](std::stop_token stopToken)
+        {
+            std::unique_lock<std::mutex> lock(_mtx);
+
+            while (!_isThreadStopped && !stopToken.stop_requested())
+            {
+                _cv.wait(lock,
+                         [this, &stopToken] {
+                             return !_queue.empty() || _isThreadStopped
+                                    || stopToken.stop_requested();
+                         });
+
+                if (!_queue.empty())
+                {
+                    auto task = std::move(_queue.front());
+                    _queue.pop();
+
+                    lock.unlock();
+                    task.execute();
+                    lock.lock();
+                }
+            }
+        });
 }
 
-ThreadWrapper::ThreadWrapper(const std::shared_ptr<Task>& task, InterThreadSync mode)
-    : ThreadWrapper(mode)
+ThreadWrapper::ThreadWrapper(const Task& task, InterThreadSync mode) : ThreadWrapper(mode)
 {
     giveTask(task);
 }
@@ -17,22 +38,17 @@ ThreadWrapper::ThreadWrapper(const std::shared_ptr<Task>& task, InterThreadSync 
 void ThreadWrapper::run()
 {
     std::unique_lock<std::mutex> lock(_mtx);
-    _running = true;
     _cv.notify_one();
 }
 
 void ThreadWrapper::stop()
 {
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
-        _isThreadStopped = true;
-    }
-    _cv.notify_all();
+    requestStop();
     if (_thread.joinable())
         _thread.join();
 }
 
-void ThreadWrapper::giveTask(const std::shared_ptr<Task>& task)
+void ThreadWrapper::giveTask(const Task& task)
 {
     {
         std::lock_guard<std::mutex> lock(_mtx);
@@ -45,27 +61,9 @@ ThreadWrapper::~ThreadWrapper() { stop(); }
 
 void ThreadWrapper::requestStop()
 {
-    std::lock_guard<std::mutex> lock(_mtx);
-    _isThreadStopped = true;
-    _cv.notify_all();
-}
-
-void ThreadWrapper::threadFunc()
-{
-    std::unique_lock<std::mutex> lock(_mtx);
-    while (!_isThreadStopped)
     {
-        _cv.wait(lock, [this] { return !_queue.empty() || _isThreadStopped; });
-
-        if (!_queue.empty())
-        {
-            auto task = std::move(_queue.front());
-            _queue.pop();
-            lock.unlock();
-
-            task->execute();
-
-            lock.lock();
-        }
+        std::lock_guard<std::mutex> lock(_mtx);
+        _isThreadStopped = true;
     }
+    _cv.notify_all();
 }

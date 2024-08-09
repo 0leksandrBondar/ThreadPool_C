@@ -4,7 +4,11 @@
 class Task
 {
 public:
-    explicit Task(std::function<void()> func) : _func(std::move(func)) {}
+    template <typename Func, typename... Args>
+    explicit Task(Func&& func, Args&&... args)
+        : _func([func = std::forward<Func>(func), args...](void) { func(args...); })
+    {
+    }
 
     void execute() { _func(); }
 

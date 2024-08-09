@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Task.h"
+
 #include <queue>
 #include <functional>
 #include <mutex>
@@ -12,17 +14,15 @@ enum class InterThreadSync
     Detach
 };
 
-class Task;
 
 class ThreadWrapper
 {
 public:
-    using ThreadId = std::thread::id;
+    using ThreadId = std::jthread::id;
 
 public:
     explicit ThreadWrapper(InterThreadSync mode = InterThreadSync::Join);
-    explicit ThreadWrapper(const std::shared_ptr<Task>& task,
-                           InterThreadSync mode = InterThreadSync::Join);
+    explicit ThreadWrapper(const Task& task, InterThreadSync mode = InterThreadSync::Join);
 
     ~ThreadWrapper();
 
@@ -33,23 +33,18 @@ public:
     void setName(const std::string& name) { _name = name; }
     void setInterThreadSyncMode(InterThreadSync mode) { _mode = mode; }
 
-    void giveTask(const std::shared_ptr<Task>& task);
+    void giveTask(const Task& task);
 
-    [[nodiscard]] bool isAlive() const;
-    [[nodiscard]] bool stopable() const;
-    [[nodiscard]] bool startable() const;
-    [[nodiscard]] std::string getName() const;
-    [[nodiscard]] ThreadId getThreadId() const;
+    [[nodiscard]] std::string getName() const { return _name; };
+    [[nodiscard]] bool isStopped() const { return _isThreadStopped; }
+    [[nodiscard]] ThreadId getThreadId() const { return _thread.get_id(); };
 
 private:
-    void threadFunc();
-
     std::mutex _mtx;
     std::string _name;
-    std::thread _thread;
+    std::jthread _thread;
+    std::queue<Task> _queue;
     bool _isThreadStopped{ false };
-    std::queue<std::shared_ptr<Task>> _queue;
-    InterThreadSync _mode{ InterThreadSync::Join };
     std::condition_variable _cv;
-    bool _running{ false };
+    InterThreadSync _mode{ InterThreadSync::Join };
 };
