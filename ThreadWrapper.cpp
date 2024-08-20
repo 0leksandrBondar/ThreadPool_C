@@ -1,69 +1,45 @@
 ﻿#include "ThreadWrapper.h"
-
 #include "Task.h"
 
-ThreadWrapper::ThreadWrapper(InterThreadSync mode) : _mode(mode), _isThreadStopped(false)
+#include <iostream>
+#include <optional>
+
+ThreadWrapper::ThreadWrapper(InterThreadSync mode) : _mode(mode)
 {
-    _thread = std::jthread(
-        [this](std::stop_token stopToken)
-        {
-            std::unique_lock<std::mutex> lock(_mtx);
-
-            while (!_isThreadStopped && !stopToken.stop_requested())
-            {
-                _cv.wait(lock,
-                         [this, &stopToken] {
-                             return !_queue.empty() || _isThreadStopped
-                                    || stopToken.stop_requested();
-                         });
-
-                if (!_queue.empty())
-                {
-                    auto task = std::move(_queue.front());
-                    _queue.pop();
-
-                    lock.unlock();
-                    task.execute();
-                    lock.lock();
-                }
-            }
-        });
+    _thread = std::jthread(&ThreadWrapper::runTasks, this);
 }
 
 ThreadWrapper::ThreadWrapper(const Task& task, InterThreadSync mode) : ThreadWrapper(mode)
 {
     giveTask(task);
+    _thread = std::jthread(&ThreadWrapper::runTasks, this);
 }
 
-void ThreadWrapper::run()
+void ThreadWrapper::giveTask(const Task& task) { _task = task; }
+
+void ThreadWrapper::stop() { _requestStop = true; }
+
+ThreadWrapper::ThreadWrapper(ThreadWrapper&& other) noexcept
+    : _name{ std::move(other._name) }, _thread{ std::move(other._thread) }, _mode{ other._mode }
 {
-    std::unique_lock<std::mutex> lock(_mtx);
-    _cv.notify_one();
+    other._mode = InterThreadSync::Join;
 }
 
-void ThreadWrapper::stop()
+void ThreadWrapper::runTasks()
 {
-    requestStop();
+    while (true)
+    {
+        if (_task.has_value())
+        {
+            _task->execute(_requestStop);
+            _task.reset();
+            break;
+        }
+    }
+}
+
+ThreadWrapper::~ThreadWrapper()
+{
     if (_thread.joinable())
         _thread.join();
-}
-
-void ThreadWrapper::giveTask(const Task& task)
-{
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
-        _queue.push(task);
-    }
-    _cv.notify_one();
-}
-
-ThreadWrapper::~ThreadWrapper() { stop(); }
-
-void ThreadWrapper::requestStop()
-{
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
-        _isThreadStopped = true;
-    }
-    _cv.notify_all();
 }

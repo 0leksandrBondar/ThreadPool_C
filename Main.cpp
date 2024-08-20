@@ -1,31 +1,24 @@
 #include <chrono>
 #include <iostream>
-#include <memory>
 
-#include "ThreadWrapper.h"
 #include "Task.h"
+#include "ThreadPool.h"
 
-void foo(std::string text)
-{
-    for (int i = 0; i < 10; ++i)
-    {
-        std::cout << text << '\n';
-        std::this_thread::sleep_for(std::chrono::microseconds(550));
-    }
-}
+void AcceptClients(bool& requestStop, std::string text) {  std::cout << text << " started!" << '\n'; }
+void HandleIncomingMessage(bool& requestStop, std::string text) {  std::cout << text << " started!" << '\n'; }
+void CheckClientsOnDisconnect(bool& requestStop, std::string text) { std::cout << text << " started!" << '\n'; }
 
 int main()
 {
-    ThreadWrapper thread;
+    Task task(AcceptClients, "AcceptClients");
+    Task task2(CheckClientsOnDisconnect, "HandleIncomingMessage");
+    Task task3(HandleIncomingMessage, "CheckClientsOnDisconnect");
 
-    thread.giveTask(Task(foo, "hello"));
-    thread.run();
+    ThreadPool::GetInstance()->pushTask(task);
+    ThreadPool::GetInstance()->pushTask(task2);
+    ThreadPool::GetInstance()->pushTask(task3);
+    ThreadPool::GetInstance()->runTasks();
 
-    while (true)
-    {
-        std::cout << "MAIN TASK\n";
-        std::this_thread::sleep_for(std::chrono::microseconds(550));
-    }
 
     return 0;
 }

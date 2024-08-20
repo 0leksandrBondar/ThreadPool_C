@@ -13,6 +13,9 @@ set(SOURCES
         ThreadWrapper.h
         ThreadWrapper.cpp
         Task.cpp
-        Task.h)
+        Task.h
+        Singleton.cpp
+        Singleton.h
+)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
